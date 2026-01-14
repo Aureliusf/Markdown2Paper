@@ -1,27 +1,27 @@
 import jspdf from "jspdf";
-import { PaperExportSettings, FormatStyle } from "../types";
-import { APAFormatter } from "./formatters/apa-formatter";
+import { PaperExportSettings } from "../types";
 import { BaseFormatter } from "./formatters/base-formatter";
 import { loadFonts } from "./font-loader";
 import { visit } from "unist-util-visit";
+import { FormatterFactory } from "./formatter-factory";
 
 // Helper to check if a node has actual content
 function hasContent(node: any): boolean {
 	if (node.type === "paragraph") {
 		if (!node.children || node.children.length === 0) return false;
-		
+
 		// Check if all children are empty or whitespace-only text
 		const text = node.children
 			.filter((child: any) => child.type === "text")
 			.map((child: any) => child.value)
 			.join("")
 			.trim();
-		
+
 		return text.length > 0 || node.children.some(
 			(child: any) => child.type !== "text"  // Has non-text children (emphasis, strong, etc.)
 		);
 	}
-	
+
 	// Other node types (heading, list, table, etc.) are assumed to have content
 	return true;
 }
@@ -37,18 +37,19 @@ export async function generatePdf(
   });
   loadFonts(doc, settings);
 
+  // Use factory to create the appropriate formatter based on settings
   let formatter: BaseFormatter;
   let y: number;
 
-  switch (settings.selectedFormatStyle) {
-    case FormatStyle.APA:
-      // Y will be properly initialized after this, so a placeholder is fine.
-      formatter = new APAFormatter(doc, 0, settings);
-      break;
-    default:
-      throw new Error(
-        `Unsupported format style: ${settings.selectedFormatStyle}`
-      );
+  try {
+    // Create formatter dynamically based on selected format style
+    formatter = FormatterFactory.createFormatter(doc, 0, settings);
+  } catch (error) {
+    console.error("Failed to create formatter:", error);
+    throw new Error(
+      `Failed to create formatter for format style: ${settings.selectedFormatStyle}. ` +
+      `Available formats: ${FormatterFactory.getAvailableFormats().join(", ")}`
+    );
   }
 
   const { margins } = formatter.getPageSetup();
@@ -62,10 +63,16 @@ export async function generatePdf(
     console.warn("No title found in markdown document. Skipping title formatting.");
   }
 
+  // Collect all nodes first, then process them
+  const nodes: any[] = [];
   visit(parsedContent.content, (node) => {
-    // Skip nodes without content
-    if (!hasContent(node)) return;
+    if (hasContent(node)) {
+      nodes.push(node);
+    }
+  });
 
+  // Process each node with proper async handling
+  for (const node of nodes) {
     if (y > doc.internal.pageSize.height - margins.bottom) {
       doc.addPage();
       y = margins.top;
@@ -85,11 +92,11 @@ export async function generatePdf(
         break;
       case "paragraph":
         // @ts-ignore
-        formatter.formatParagraph(node);
+        await formatter.formatParagraph(node);
         break;
       case "list":
         // @ts-ignore
-        formatter.formatList(node);
+        await formatter.formatList(node);
         break;
       case "table":
         // @ts-ignore
@@ -105,11 +112,24 @@ export async function generatePdf(
         break;
       case "blockquote":
         // @ts-ignore
-        formatter.formatBlockquote(node);
+        await formatter.formatBlockquote(node);
+        break;
+      case "math":
+        // Display math ($$...$$)
+        // @ts-ignore
+        await formatter.formatLatex(node, true);
+        break;
+      case "inlineMath":
+        // Inline math ($...$) - handled by formatLatex for consistency
+        // @ts-ignore
+        await formatter.formatLatex(node, false);
+        break;
+      default:
+        console.warn(`Unsupported node type: ${node.type}. Skipping node.`);
         break;
     }
     y = formatter.y;
-  });
+  }
 
   if (parsedContent.citations.length > 0) {
     parsedContent.citations.forEach((citation: string) => {

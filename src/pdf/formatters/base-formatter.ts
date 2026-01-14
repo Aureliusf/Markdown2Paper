@@ -44,4 +44,5 @@ export abstract class BaseFormatter {
   abstract formatCitation(citation: string): void;
   abstract formatReferenceList(references: string[]): void;
   abstract getPageSetup(): PageConfig;
+  abstract formatLatex(node: any, isDisplay: boolean): Promise<void>;
 }

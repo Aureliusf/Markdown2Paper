@@ -1,5 +1,6 @@
 import jspdf from "jspdf";
 import "jspdf-autotable";
+import { latexRenderer } from "../latex-renderer";
 import { BaseFormatter, PageConfig } from "./base-formatter";
 import { PaperExportSettings } from "../../types";
 import { defaultLayout, LayoutManager } from "../layout-manager";
@@ -409,5 +410,46 @@ renderTextFlow(nodes: any[], x: number, prefix = ""): void {
         height: this.doc.internal.pageSize.height,
       },
     };
+  }
+
+  async formatDisplayMath(node: any): Promise<void> {
+    this.y += this.layout.paragraphSpacing;
+    const result = await latexRenderer.renderDisplay(node.value);
+    if (result && result.svg) {
+      try {
+        // @ts-ignore
+        await this.doc.svg(result.svg, {
+          x:
+            (this.getPageSetup().pageDimensions.width -
+              result.width) /
+            2,
+          y: this.y,
+          width: result.width,
+          height: result.height,
+        });
+        this.y += result.height;
+      } catch (error) {
+        console.error("Error rendering display LaTeX:", error);
+        // Fallback: render as text
+        this.doc.text(`[Display Math: ${node.value}]`, this.pageMargins.left, this.y);
+        this.y += this.layout.paragraphSpacing;
+      }
+    } else {
+      // Fallback: render as text
+      this.doc.text(`[Display Math: ${node.value}]`, this.pageMargins.left, this.y);
+      this.y += this.layout.paragraphSpacing;
+    }
+    this.y += this.layout.paragraphSpacing;
+  }
+
+  async formatLatex(node: any, isDisplay: boolean): Promise<void> {
+    if (isDisplay) {
+      // Display math ($$...$$)
+      await this.formatDisplayMath(node);
+    } else {
+      // Inline math - this will be handled by renderTextFlowWithIndent
+      // when processing text segments
+      console.warn("Inline LaTeX should be processed in text flow, not as separate node");
+    }
   }
 }
