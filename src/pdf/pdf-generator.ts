@@ -5,6 +5,27 @@ import { BaseFormatter } from "./formatters/base-formatter";
 import { loadFonts } from "./font-loader";
 import { visit } from "unist-util-visit";
 
+// Helper to check if a node has actual content
+function hasContent(node: any): boolean {
+	if (node.type === "paragraph") {
+		if (!node.children || node.children.length === 0) return false;
+		
+		// Check if all children are empty or whitespace-only text
+		const text = node.children
+			.filter((child: any) => child.type === "text")
+			.map((child: any) => child.value)
+			.join("")
+			.trim();
+		
+		return text.length > 0 || node.children.some(
+			(child: any) => child.type !== "text"  // Has non-text children (emphasis, strong, etc.)
+		);
+	}
+	
+	// Other node types (heading, list, table, etc.) are assumed to have content
+	return true;
+}
+
 export async function generatePdf(
   parsedContent: any,
   settings: PaperExportSettings
@@ -42,6 +63,9 @@ export async function generatePdf(
   }
 
   visit(parsedContent.content, (node) => {
+    // Skip nodes without content
+    if (!hasContent(node)) return;
+
     if (y > doc.internal.pageSize.height - margins.bottom) {
       doc.addPage();
       y = margins.top;
@@ -50,6 +74,12 @@ export async function generatePdf(
 
     switch (node.type) {
       case "heading":
+        // Check for reference section - insert page break
+        if (node.data?.isReferenceSection) {
+          doc.addPage();
+          y = margins.top;
+          formatter.setY(y);
+        }
         // @ts-ignore
         formatter.formatHeading(node);
         break;

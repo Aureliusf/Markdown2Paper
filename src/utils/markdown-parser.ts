@@ -13,14 +13,94 @@ interface ParsedContent {
 	references: string[];
 }
 
+// Pattern to detect standalone Obsidian tags
+const OBSIDIAN_TAG_PATTERN = /^(#[a-zA-Z0-9_-]+\s*)+$/;
+
+// Reference section keywords
+const REFERENCE_SECTION_KEYWORDS = ["references", "reference", "citations", "bibliography"];
+
+// Filter function to remove tag-only paragraphs
+function isObsidianTagParagraph(node: any): boolean {
+	if (node.type !== "paragraph") return false;
+	if (!node.children || node.children.length !== 1) return false;
+	if (node.children[0].type !== "text") return false;
+
+	const text = node.children[0].value.trim();
+	return OBSIDIAN_TAG_PATTERN.test(text);
+}
+
+/**
+ * Pre-processes markdown to convert each line to a separate paragraph.
+ * - Each non-empty line becomes its own paragraph
+ * - Empty lines are removed (no extra spacing)
+ * - Preserves code blocks and frontmatter
+ */
+function preprocessMarkdown(content: string): string {
+  const lines = content.split('\n');
+  const result: string[] = [];
+  
+  let inCodeBlock = false;
+  let inFrontmatter = false;
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i] || '';
+    const trimmedLine = line.trim();
+    
+    // Track frontmatter (only at start of document)
+    if (i === 0 && trimmedLine === '---') {
+      inFrontmatter = true;
+      result.push(line);
+      continue;
+    }
+    
+    if (inFrontmatter) {
+      result.push(line);
+      if (trimmedLine === '---') {
+        inFrontmatter = false;
+        result.push(''); // Blank line after frontmatter
+      }
+      continue;
+    }
+    
+    // Track code blocks
+    if (trimmedLine.startsWith('```')) {
+      inCodeBlock = !inCodeBlock;
+      result.push(line);
+      continue;
+    }
+    
+    if (inCodeBlock) {
+      result.push(line);
+      continue;
+    }
+    
+    // Skip empty lines completely (no spacing)
+    if (trimmedLine === '') {
+      continue;
+    }
+    
+    // Add paragraph break before each content line (except first)
+    if (result.length > 0 && result[result.length - 1]?.trim() !== '') {
+      result.push(''); // Blank line = paragraph break
+    }
+    
+    result.push(line);
+  }
+  
+  return result.join('\n');
+}
+
 export function parseMarkdown(markdownContent: string): ParsedContent {
-	const processor = unified()
-		.use(remarkParse)
-		.use(remarkFrontmatter, ["yaml"]);
+  // Pre-process: each line becomes a paragraph, remove empty lines
+  const processedContent = preprocessMarkdown(markdownContent);
+  
+  const processor = unified()
+    .use(remarkParse)
+    .use(remarkFrontmatter, ["yaml"]);
 
-	const tree = processor.parse(markdownContent);
+  const tree = processor.parse(processedContent);
 
-	let title = "Paper";
+	let title = "Untitled";
 	let frontmatter: { [key: string]: any } = {};
 	let titleFoundInFrontmatter = false;
 
@@ -55,6 +135,26 @@ export function parseMarkdown(markdownContent: string): ParsedContent {
 			tree.children.splice(firstH1Index, 1);
 		}
 	}
+
+	// Remove standalone Obsidian tag paragraphs
+	tree.children = tree.children.filter(node => !isObsidianTagParagraph(node));
+
+	// Mark reference section headings
+	visit(tree, "heading", (node: any) => {
+		if (node.children && node.children.length > 0) {
+			const text = node.children
+				.filter((child: any) => child.type === "text")
+				.map((child: any) => child.value)
+				.join("")
+				.toLowerCase()
+				.trim();
+
+			if (REFERENCE_SECTION_KEYWORDS.includes(text)) {
+				node.data = node.data || {};
+				node.data.isReferenceSection = true;
+			}
+		}
+	});
 
 	const citations: string[] = [];
 	const references: string[] = [];

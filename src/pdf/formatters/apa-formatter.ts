@@ -22,38 +22,100 @@ export class APAFormatter extends BaseFormatter {
   }
 
   formatTitle(title: string): void {
-    const { fontSize } = this.getPageSetup();
-    this.doc.setFontSize(fontSize);
-    this.doc.text(title, this.doc.internal.pageSize.width / 2, this.y, {
-      align: "center",
-    });
-    this.y += this.layout.paragraphSpacing;
-  }
+  const { fontSize, lineHeight, pageDimensions } = this.getPageSetup();
+  const lineHeightPt = fontSize * lineHeight;
+  const fontName = this.settings.font;
+  
+  // APA Title: Centered, Bold
+  // Position: 12pt (one font-size) from top margin
+  this.y += fontSize;  // Add 12pt spacing from top margin
+  
+  this.doc.setFontSize(fontSize);
+  this.doc.setFont(fontName, "bold");
+  this.doc.text(title, pageDimensions.width / 2, this.y, { align: "center" });
+  this.doc.setFont(fontName, "normal");
+  
+  // Move down one double-spaced line after title
+  this.y += lineHeightPt;
+}
 
   formatHeading(node: any): void {
-    const { fontSize } = this.getPageSetup();
-    this.doc.setFontSize(fontSize + 6 - node.depth * 2);
-    this.doc.setFont("Times", "bold");
-    this.y += this.layout.headingSpacing.before;
-    const text = this.getTextFromChildren(node.children);
-    this.doc.text(text, this.pageMargins.left, this.y);
-    this.doc.setFont("Times", "normal");
-    this.y += this.layout.headingSpacing.after;
+  const { fontSize, lineHeight, margins, pageDimensions } = this.getPageSetup();
+  const lineHeightPt = fontSize * lineHeight;
+  const text = this.getTextFromChildren(node.children);
+  const fontName = this.settings.font;
+  
+  this.doc.setFontSize(fontSize);
+  
+  // APA 7th Edition Heading Levels
+  // Markdown H1 = Title (removed from content, handled separately)
+  // Markdown H2 = APA Level 1: Centered, Bold
+  // Markdown H3 = APA Level 2: Flush Left, Bold  
+  // Markdown H4 = APA Level 3: Flush Left, Bold Italic
+  // Markdown H5 = APA Level 4: Indented, Bold, period
+  // Markdown H6 = APA Level 5: Indented, Bold Italic, period
+  
+  switch (node.depth) {
+    case 2: // APA Level 1: Centered, Bold
+      this.doc.setFont(fontName, "bold");
+      this.doc.text(text, pageDimensions.width / 2, this.y, { align: "center" });
+      this.y += lineHeightPt;
+      break;
+      
+    case 3: // APA Level 2: Flush Left, Bold
+      this.doc.setFont(fontName, "bold");
+      this.doc.text(text, margins.left, this.y);
+      this.y += lineHeightPt;
+      break;
+      
+    case 4: // APA Level 3: Flush Left, Bold Italic
+      this.doc.setFont(fontName, "bolditalic");
+      this.doc.text(text, margins.left, this.y);
+      this.y += lineHeightPt;
+      break;
+      
+    case 5: // APA Level 4: Indented, Bold, ends with period
+      this.doc.setFont(fontName, "bold");
+      const text4 = text.endsWith('.') ? text : text + '.';
+      this.doc.text(text4, margins.left + this.layout.firstLineIndent, this.y);
+      this.y += lineHeightPt;
+      break;
+      
+    case 6: // APA Level 5: Indented, Bold Italic, ends with period
+      this.doc.setFont(fontName, "bolditalic");
+      const text5 = text.endsWith('.') ? text : text + '.';
+      this.doc.text(text5, margins.left + this.layout.firstLineIndent, this.y);
+      this.y += lineHeightPt;
+      break;
+      
+    default:
+      this.doc.setFont(fontName, "bold");
+      this.doc.text(text, margins.left, this.y);
+      this.y += lineHeightPt;
   }
+  
+  this.doc.setFont(fontName, "normal");
+}
 
   formatParagraph(node: any): void {
-    this.y += this.layout.paragraphSpacing;
-    this.renderTextFlow(node.children, this.pageMargins.left);
-    this.y += this.layout.paragraphSpacing;
-  }
+  // APA: 0.5" first-line indent, subsequent lines flush left
+  const firstLineX = this.pageMargins.left + this.layout.firstLineIndent;
+  const subsequentLineX = this.pageMargins.left;
+  
+  this.renderTextFlowWithIndent(node.children, firstLineX, subsequentLineX);
+}
 
   formatList(node: any): void {
     this.y += this.layout.paragraphSpacing;
+    const listIndentX = this.pageMargins.left + this.layout.listIndent;
+    
     node.children.forEach((listItem: any, index: number) => {
       const prefix = node.ordered ? `${index + 1}. ` : "- ";
-      this.renderTextFlow(
+      // APA lists: consistent indent without first-line indentation
+      this.renderTextFlowWithIndent(
         listItem.children,
-        this.pageMargins.left + this.layout.listIndent,
+        listIndentX,  // First line starts at list indent
+        listIndentX,  // Subsequent lines also at list indent (no hanging indent)
         prefix
       );
       this.y += this.layout.paragraphSpacing / 2;
@@ -111,83 +173,80 @@ export class APAFormatter extends BaseFormatter {
     this.y += this.layout.paragraphSpacing;
   }
 
-  renderTextFlow(nodes: any[], x: number, prefix = ""): void {
-    const { fontSize, lineHeight, margins, pageDimensions } = this.getPageSetup();
-    const maxWidth = pageDimensions.width - margins.left - margins.right;
-    const lineHeightPt = fontSize * lineHeight;
-    const fontName = this.settings.font;
-    
-    // Extract formatted segments from AST nodes
-    const segments = this.extractTextSegments(nodes);
-    
-    // Prepend prefix if provided (e.g., list bullet "- " or "1. ")
-    if (prefix) {
-      segments.unshift({ text: prefix, bold: false, italic: false, code: false });
-    }
-    
-    let currentX = x;
-    let lineStartX = x;
-    let currentLineWidth = 0;
-    
-    // Helper to move to next line
-    const newLine = () => {
-      this.y += lineHeightPt;
-      currentX = lineStartX;
-      currentLineWidth = 0;
-      
-      // Check for page break
-      if (this.y + lineHeightPt > pageDimensions.height - margins.bottom) {
-        this.doc.addPage();
-        this.y = margins.top;
-      }
-    };
-    
-    for (const segment of segments) {
-      // Set font for this segment
-      if (segment.code) {
-        this.doc.setFont("Courier", "normal");
-      } else {
-        const style = this.getFontStyle(segment.bold, segment.italic);
-        this.doc.setFont(fontName, style);
-      }
-      this.doc.setFontSize(fontSize);
-      
-      // Split into words while preserving whitespace
-      const tokens = segment.text.split(/(\s+)/);
-      
-      for (const token of tokens) {
-        if (token === "") continue;
-        
-        const tokenWidth = this.doc.getTextWidth(token);
-        
-        // Check if we need to wrap to next line
-        // Don't wrap if we're at line start (handles very long words)
-        if (currentLineWidth > 0 && currentLineWidth + tokenWidth > maxWidth) {
-          newLine();
-          
-          // Re-apply font after potential page break
-          if (segment.code) {
-            this.doc.setFont("Courier", "normal");
-          } else {
-            const style = this.getFontStyle(segment.bold, segment.italic);
-            this.doc.setFont(fontName, style);
-          }
-          this.doc.setFontSize(fontSize);
-          
-          // Skip leading whitespace on new line
-          if (token.trim() === "") continue;
-        }
-        
-        // Render the token
-        this.doc.text(token, currentX, this.y);
-        currentX += tokenWidth;
-        currentLineWidth += tokenWidth;
-      }
-    }
-    
-    // Move to next line after completing the text flow
-    this.y += lineHeightPt;
+  renderTextFlowWithIndent(
+  nodes: any[], 
+  firstLineX: number, 
+  subsequentLineX: number,
+  prefix = ""
+): void {
+  const { fontSize, lineHeight, margins, pageDimensions } = this.getPageSetup();
+  const maxWidth = pageDimensions.width - margins.right;
+  const lineHeightPt = fontSize * lineHeight;
+  const fontName = this.settings.font;
+  
+  const segments = this.extractTextSegments(nodes);
+  
+  if (prefix) {
+    segments.unshift({ text: prefix, bold: false, italic: false, code: false });
   }
+  
+  let currentX = firstLineX;
+  let isFirstLine = true;
+  
+  const newLine = () => {
+    this.y += lineHeightPt;
+    isFirstLine = false;
+    currentX = subsequentLineX;
+    
+    if (this.y + lineHeightPt > pageDimensions.height - margins.bottom) {
+      this.doc.addPage();
+      this.y = margins.top;
+    }
+  };
+  
+  for (const segment of segments) {
+    if (segment.code) {
+      this.doc.setFont("Courier", "normal");
+    } else {
+      const style = this.getFontStyle(segment.bold, segment.italic);
+      this.doc.setFont(fontName, style);
+    }
+    this.doc.setFontSize(fontSize);
+    
+    const tokens = segment.text.split(/(\s+)/);
+    
+    for (const token of tokens) {
+      if (token === "") continue;
+      
+      const tokenWidth = this.doc.getTextWidth(token);
+      
+      // Check if we need to wrap
+      if (currentX + tokenWidth > maxWidth && currentX > (isFirstLine ? firstLineX : subsequentLineX)) {
+        newLine();
+        
+        if (segment.code) {
+          this.doc.setFont("Courier", "normal");
+        } else {
+          const style = this.getFontStyle(segment.bold, segment.italic);
+          this.doc.setFont(fontName, style);
+        }
+        this.doc.setFontSize(fontSize);
+        
+        if (token.trim() === "") continue;
+      }
+      
+      this.doc.text(token, currentX, this.y);
+      currentX += tokenWidth;
+    }
+  }
+  
+  this.y += lineHeightPt;
+}
+
+// Keep original signature for backward compatibility with lists, etc.
+renderTextFlow(nodes: any[], x: number, prefix = ""): void {
+  this.renderTextFlowWithIndent(nodes, x, x, prefix);
+}
 
   getTextFromNode(node: any): string {
     if (node.type === "text") {
@@ -210,13 +269,60 @@ export class APAFormatter extends BaseFormatter {
   }
 
   formatReferenceList(references: string[]): void {
+    // Add extra spacing before References section
     this.y += this.layout.paragraphSpacing * 2;
+    
+    // References heading
+    this.doc.setFont(this.settings.font, "bold");
     this.doc.text("References", this.pageMargins.left, this.y);
+    this.doc.setFont(this.settings.font, "normal");
     this.y += this.layout.paragraphSpacing;
+    
+    // Each reference entry - flush left, no first-line indent (APA requirement)
+    const referenceIndentX = this.pageMargins.left;
+    const { fontSize, lineHeight, margins, pageDimensions } = this.getPageSetup();
+    const maxWidth = pageDimensions.width - margins.right;
+    const lineHeightPt = fontSize * lineHeight;
+    const fontName = this.settings.font;
+    
     references.forEach((ref) => {
       this.y += this.layout.paragraphSpacing;
-      this.doc.text(ref, this.pageMargins.left, this.y);
+      
+      // Handle reference text with proper wrapping and no first-line indent
+      let currentX = referenceIndentX;
+      
+      // Split reference into words for wrapping
+      const words = ref.split(/(\s+)/);
+      
+      for (const word of words) {
+        if (word === "") continue;
+        
+        const wordWidth = this.doc.getTextWidth(word);
+        
+        // Check if we need to wrap to new line
+        if (currentX + wordWidth > maxWidth) {
+          this.y += lineHeightPt;
+          currentX = referenceIndentX;  // Flush left, no hanging indent
+          
+          // Page break check
+          if (this.y + lineHeightPt > pageDimensions.height - margins.bottom) {
+            this.doc.addPage();
+            this.y = margins.top;
+          }
+        }
+        
+        // Set font for this word (references are normal text)
+        this.doc.setFont(fontName, "normal");
+        this.doc.setFontSize(fontSize);
+        
+        this.doc.text(word, currentX, this.y);
+        currentX += wordWidth;
+      }
+      
+      // Move to next paragraph
+      this.y += lineHeightPt;
     });
+    
     this.y += this.layout.paragraphSpacing;
   }
 
