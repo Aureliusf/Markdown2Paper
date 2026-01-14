@@ -1,0 +1,9 @@
+{
+	"id": "markdown-to-paper",
+	"name": "Markdown to Paper",
+	"version": "1.0.0",
+	"minAppVersion": "0.15.0",
+	"description": "Transform your markdown drafts into APA formated papers in one simple click",
+	"author": "Aurelio Florez",
+	"isDesktopOnly": false
+}
