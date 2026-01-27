@@ -47,7 +47,7 @@ Transform your markdown drafts into APA-formatted papers for school ready PDFs.
 
 1. Clone the repository:
    ```bash
-   git clone <https://github.com/Aureliusf/Markdown2Paper>
+   git clone https://github.com/Aureliusf/Markdown2Paper
    cd markdown-to-paper
    ```
 
