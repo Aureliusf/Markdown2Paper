@@ -206,6 +206,9 @@ export function parseMarkdown(markdownContent: string): ParsedContent {
       return trimmed.split("|").map((cell) => cell.trim());
     };
 
+    if (!lines[0]) {
+      return { type: "paragraph", children: [] };
+    }
     const headerCells = normalizeRow(lines[0]);
     const bodyLines = lines.slice(2);
     const bodyRows = bodyLines.map((row) => normalizeRow(row));
@@ -244,7 +247,7 @@ export function parseMarkdown(markdownContent: string): ParsedContent {
       node.children[0].type === "text"
     ) {
       const match = tableTokenPattern.exec(node.children[0].value.trim());
-      if (match) {
+      if (match && match[1] !== undefined) {
         const index = Number.parseInt(match[1], 10);
         const tableLines = processed.tableBlocks[index];
         if (tableLines) {

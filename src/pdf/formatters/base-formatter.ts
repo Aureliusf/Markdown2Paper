@@ -299,7 +299,9 @@ export abstract class BaseFormatter {
             value: normalized.slice(lastIndex, match.index),
           });
         }
-        segments.push({ type: "latex", value: match[1] });
+        if (match[1] !== undefined) {
+          segments.push({ type: "latex", value: match[1] });
+        }
         lastIndex = match.index + match[0].length;
       }
       if (lastIndex < normalized.length) {
@@ -316,8 +318,10 @@ export abstract class BaseFormatter {
 
     const scanCells = async (rows: string[][], section: "head" | "body") => {
       for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
-        for (let colIndex = 0; colIndex < rows[rowIndex].length; colIndex++) {
-          const cellText = rows[rowIndex][colIndex];
+        const row = rows[rowIndex];
+        if (!row) continue;
+        for (let colIndex = 0; colIndex < row.length; colIndex++) {
+          const cellText = row[colIndex];
           if (!cellText || !cellText.includes("$")) continue;
 
           const segments = splitInlineLatex(cellText);
@@ -334,7 +338,7 @@ export abstract class BaseFormatter {
           }
 
           cellRenderMap.set(`${section}:${rowIndex}:${colIndex}`, segments);
-          rows[rowIndex][colIndex] = "";
+          row[colIndex] = "";
         }
       }
     };
