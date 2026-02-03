@@ -1,6 +1,6 @@
 import jspdf from "jspdf";
 import { PaperExportSettings } from "../types";
-import { BaseFormatter } from "./formatters/base-formatter";
+import { BaseFormatter, ImageResolver } from "./formatters/base-formatter";
 import { loadFonts } from "./font-loader";
 import { FormatterFactory } from "./formatter-factory";
 
@@ -27,7 +27,8 @@ function hasContent(node: any): boolean {
 
 export async function generatePdf(
   parsedContent: any,
-  settings: PaperExportSettings
+  settings: PaperExportSettings,
+  imageResolver?: ImageResolver
 ): Promise<Blob> {
   const doc = new jspdf({
     orientation: 'portrait',
@@ -42,7 +43,7 @@ export async function generatePdf(
 
   try {
     // Create formatter dynamically based on selected format style
-    formatter = FormatterFactory.createFormatter(doc, 0, settings);
+    formatter = FormatterFactory.createFormatter(doc, 0, settings, imageResolver);
   } catch (error) {
     console.error("Failed to create formatter:", error);
     throw new Error(
@@ -98,7 +99,7 @@ export async function generatePdf(
         break;
       case "image":
         // @ts-ignore
-        formatter.formatImage(node);
+        await formatter.formatImage(node);
         break;
       case "code":
         // @ts-ignore

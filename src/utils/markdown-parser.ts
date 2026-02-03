@@ -42,6 +42,7 @@ function preprocessMarkdown(content: string): string {
   
   let inCodeBlock = false;
   let inFrontmatter = false;
+  const obsidianEmbedPattern = /!\[\[([^\]]+)\]\]/g;
 
   const expandDisplayMathInLine = (line: string): string[] => {
     const parts: string[] = [];
@@ -105,7 +106,14 @@ function preprocessMarkdown(content: string): string {
       continue;
     }
     
-    const expandedLines = expandDisplayMathInLine(line);
+    const normalizedLine = line.replace(obsidianEmbedPattern, (_match, inner) => {
+      const [target, alt] = inner.split("|").map((part: string) => part.trim());
+      const safeAlt = alt || "";
+      const encodedTarget = target.replace(/ /g, "%20");
+      return `![${safeAlt}](${encodedTarget})`;
+    });
+
+    const expandedLines = expandDisplayMathInLine(normalizedLine);
     for (const expandedLine of expandedLines) {
       if (expandedLine.trim() === '') {
         // Preserve explicit blank lines for display math separation

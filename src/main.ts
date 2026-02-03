@@ -3,6 +3,7 @@ import { DEFAULT_SETTINGS, PaperExportSettingTab } from "./settings";
 import { PaperExportSettings, FormatStyle } from "./types";
 import { addRibbonButtons } from "./ui/ribbon-manager";
 import { generatePdf } from "./pdf/pdf-generator";
+import { ImageInfo } from "./pdf/formatters/base-formatter";
 import { parseMarkdown } from "./utils/markdown-parser";
 import { saveAs } from "file-saver";
 
@@ -73,7 +74,44 @@ export default class PaperExportPlugin extends Plugin {
       try {
         const markdownContent = await this.app.vault.read(activeFile);
         const parsedContent = parseMarkdown(markdownContent);
-        const pdfBlob = await generatePdf(parsedContent, this.settings);
+        const imageResolver = async (node: any): Promise<ImageInfo | null> => {
+          if (!node?.url) return null;
+          const linkPath = decodeURI(String(node.url)).trim();
+          const target = this.app.metadataCache.getFirstLinkpathDest(
+            linkPath,
+            activeFile.path
+          );
+          if (!target) {
+            console.warn("Image not found for link:", linkPath);
+            return null;
+          }
+
+          const arrayBuffer = await this.app.vault.readBinary(target);
+          const extension = target.extension.toLowerCase();
+          const mime =
+            extension === "png"
+              ? "image/png"
+              : extension === "jpg" || extension === "jpeg"
+                ? "image/jpeg"
+                : extension === "gif"
+                  ? "image/gif"
+                  : extension === "webp"
+                    ? "image/webp"
+                    : extension === "svg"
+                      ? "image/svg+xml"
+                      : "image/png";
+
+          const base64 = this.arrayBufferToBase64(arrayBuffer);
+          const dataUrl = `data:${mime};base64,${base64}`;
+          const size = await this.getImageSize(dataUrl, mime, arrayBuffer);
+          return {
+            dataUrl,
+            width: size.width,
+            height: size.height,
+          };
+        };
+
+        const pdfBlob = await generatePdf(parsedContent, this.settings, imageResolver);
         saveAs(pdfBlob, `${activeFile.basename}.pdf`);
         new Notice(`Successfully exported ${activeFile.basename} to PDF.`);
       } catch (error) {
@@ -83,5 +121,65 @@ export default class PaperExportPlugin extends Plugin {
     } else {
       new Notice("No active file to export.");
     }
+  }
+
+  private arrayBufferToBase64(buffer: ArrayBuffer): string {
+    const bytes = new Uint8Array(buffer);
+    let binary = "";
+    for (let i = 0; i < bytes.byteLength; i++) {
+      binary += String.fromCharCode(bytes[i]!);
+    }
+    return btoa(binary);
+  }
+
+  private parseSizeToPx(value?: string | null): number {
+    if (!value) return 0;
+    const trimmed = value.trim();
+    const num = parseFloat(trimmed);
+    if (Number.isNaN(num)) return 0;
+    if (trimmed.endsWith("px")) return num;
+    if (trimmed.endsWith("pt")) return num * 1.3333;
+    if (trimmed.endsWith("em")) return num * 16;
+    if (trimmed.endsWith("ex")) return num * 8;
+    return num;
+  }
+
+  private async getImageSize(
+    dataUrl: string,
+    mime: string,
+    arrayBuffer?: ArrayBuffer
+  ): Promise<{ width: number; height: number }> {
+    if (mime === "image/svg+xml" && arrayBuffer) {
+      const svgText = new TextDecoder().decode(arrayBuffer);
+      const doc = new DOMParser().parseFromString(svgText, "image/svg+xml");
+      const svgEl = doc.documentElement;
+      let width = this.parseSizeToPx(svgEl.getAttribute("width"));
+      let height = this.parseSizeToPx(svgEl.getAttribute("height"));
+      if (!width || !height) {
+        const viewBox = svgEl.getAttribute("viewBox");
+        if (viewBox) {
+          const parts = viewBox.split(/\s+/).map((v) => parseFloat(v));
+          if (parts.length === 4 && parts.every((v) => !Number.isNaN(v))) {
+            width = width || parts[2]!;
+            height = height || parts[3]!;
+          }
+        }
+      }
+      if (width && height) {
+        return { width, height };
+      }
+    }
+
+    const img = new Image();
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve();
+      img.onerror = () => reject(new Error("Failed to load image"));
+      img.src = dataUrl;
+    });
+
+    return {
+      width: img.naturalWidth || 300,
+      height: img.naturalHeight || 150,
+    };
   }
 }

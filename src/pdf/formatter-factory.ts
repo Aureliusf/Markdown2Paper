@@ -1,4 +1,4 @@
-import { BaseFormatter } from "./formatters/base-formatter";
+import { BaseFormatter, ImageResolver } from "./formatters/base-formatter";
 import { APAFormatter } from "./formatters/apa-formatter";
 import jspdf from "jspdf";
 import { PaperExportSettings } from "../types";
@@ -18,11 +18,12 @@ export class FormatterFactory {
   static createFormatter(
     doc: jspdf,
     y: number,
-    settings: PaperExportSettings
+    settings: PaperExportSettings,
+    imageResolver?: ImageResolver
   ): BaseFormatter {
     switch (settings.selectedFormatStyle) {
       case FormatStyle.APA:
-        return new APAFormatter(doc, y, settings);
+        return new APAFormatter(doc, y, settings, imageResolver);
 
       // Future format styles can be added here:
       // case FormatStyle.MLA:

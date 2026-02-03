@@ -1,7 +1,7 @@
 import jspdf from "jspdf";
 import "jspdf-autotable";
 import { latexRenderer } from "../latex-renderer";
-import { BaseFormatter, PageConfig } from "./base-formatter";
+import { BaseFormatter, PageConfig, ImageResolver } from "./base-formatter";
 import { PaperExportSettings } from "../../types";
 import { defaultLayout, LayoutManager } from "../layout-manager";
 
@@ -19,8 +19,13 @@ export class APAFormatter extends BaseFormatter {
   private layout: LayoutManager;
   private pageMargins: { top: number; right: number; bottom: number; left: number };
 
-  constructor(doc: jspdf, y: number, settings: PaperExportSettings) {
-    super(doc, y, settings);
+  constructor(
+    doc: jspdf,
+    y: number,
+    settings: PaperExportSettings,
+    imageResolver?: ImageResolver
+  ) {
+    super(doc, y, settings, imageResolver);
     this.layout = defaultLayout;
     this.pageMargins = this.getPageSetup().margins;
   }
@@ -102,6 +107,14 @@ export class APAFormatter extends BaseFormatter {
 }
 
   async formatParagraph(node: any): Promise<void> {
+  if (
+    node.children &&
+    node.children.length === 1 &&
+    node.children[0].type === "image"
+  ) {
+    await this.formatImage(node.children[0]);
+    return;
+  }
   // APA: 0.5" first-line indent, subsequent lines flush left
   const firstLineX = this.pageMargins.left + this.layout.firstLineIndent;
   const subsequentLineX = this.pageMargins.left;
@@ -145,10 +158,11 @@ export class APAFormatter extends BaseFormatter {
     this.y = (this.doc as any).autoTable.previous.finalY + 10;
   }
 
-  formatImage(node: any): void {
-    this.y += this.layout.paragraphSpacing;
-    this.doc.text(`[Image: ${node.alt}]`, this.pageMargins.left, this.y);
-    this.y += this.layout.paragraphSpacing;
+  async formatImage(node: any): Promise<void> {
+    await this.renderImage(node, {
+      paragraphSpacing: this.layout.paragraphSpacing,
+      align: "center",
+    });
   }
 
   formatCode(node: any): void {
