@@ -1,19 +1,8 @@
 import jspdf from "jspdf";
-import "jspdf-autotable";
 import { latexRenderer } from "../latex-renderer";
-import { BaseFormatter, PageConfig, ImageResolver } from "./base-formatter";
+import { BaseFormatter, PageConfig, ImageResolver, TableStyleOptions, ImageBlockOptions } from "./base-formatter";
 import { PaperExportSettings } from "../../types";
 import { defaultLayout, LayoutManager } from "../layout-manager";
-
-interface TextSegment {
-  text: string;
-  bold: boolean;
-  italic: boolean;
-  code: boolean;  // For inline code spans
-  latex?: {
-    isDisplay: boolean;
-  };
-}
 
 export class APAFormatter extends BaseFormatter {
   private layout: LayoutManager;
@@ -141,28 +130,12 @@ export class APAFormatter extends BaseFormatter {
     this.y += this.layout.paragraphSpacing / 2;
   }
 
-  formatTable(node: any): void {
-    const head = node.children[0].children.map((cell: any) =>
-      this.getTextFromChildren(cell.children)
-    );
-    const body = node.children.slice(1).map((row: any) =>
-      row.children.map((cell: any) => this.getTextFromChildren(cell.children))
-    );
-
-    (this.doc as any).autoTable({
-      startY: this.y,
-      head: [head],
-      body,
-    });
-
-    this.y = (this.doc as any).autoTable.previous.finalY + 10;
+  async formatTable(node: any): Promise<void> {
+    await this.renderTableWithInlineLatex(node);
   }
 
   async formatImage(node: any): Promise<void> {
-    await this.renderImage(node, {
-      paragraphSpacing: this.layout.paragraphSpacing,
-      align: "center",
-    });
+    await this.renderImageBlock(node, this.getImageBlockOptions());
   }
 
   formatCode(node: any): void {
@@ -313,20 +286,6 @@ async renderTextFlow(nodes: any[], x: number, prefix = ""): Promise<void> {
   await this.renderTextFlowWithIndent(nodes, x, x, prefix);
 }
 
-  getTextFromNode(node: any): string {
-    if (node.type === "text") {
-      return node.value;
-    }
-    if (node.children) {
-      return this.getTextFromChildren(node.children);
-    }
-    return "";
-  }
-
-  getTextFromChildren(children: any[]): string {
-    return children.map((child) => this.getTextFromNode(child)).join("");
-  }
-
   formatCitation(citation: string): void {
     this.y += this.layout.paragraphSpacing;
     this.doc.text(`(CITATION: ${citation})`, this.pageMargins.left, this.y);
@@ -391,78 +350,21 @@ async renderTextFlow(nodes: any[], x: number, prefix = ""): Promise<void> {
     this.y += this.layout.paragraphSpacing;
   }
 
-  /**
-   * Recursively extracts text segments with formatting information.
-   * Handles nested formatting like **bold with *italic* inside**
-   */
-  private extractTextSegments(
-    nodes: any[], 
-    inheritBold = false, 
-    inheritItalic = false
-  ): TextSegment[] {
-    const segments: TextSegment[] = [];
-    
-    for (const node of nodes) {
-      if (node.type === "text") {
-        segments.push({ 
-          text: node.value, 
-          bold: inheritBold, 
-          italic: inheritItalic,
-          code: false 
-        });
-      } else if (node.type === "strong") {
-        // Bold - pass down bold=true, preserve italic state
-        const childSegments = this.extractTextSegments(
-          node.children, 
-          true,           // This node is bold
-          inheritItalic   // Preserve parent's italic state
-        );
-        segments.push(...childSegments);
-      } else if (node.type === "emphasis") {
-        // Italic - pass down italic=true, preserve bold state
-        const childSegments = this.extractTextSegments(
-          node.children, 
-          inheritBold,    // Preserve parent's bold state
-          true            // This node is italic
-        );
-        segments.push(...childSegments);
-      } else if (node.type === "inlineCode") {
-        // Inline code - render with Courier font
-        segments.push({ 
-          text: node.value, 
-          bold: false, 
-          italic: false,
-          code: true 
-        });
-      } else if (node.type === "inlineMath") {
-        segments.push({
-          text: node.value,
-          bold: false,
-          italic: false,
-          code: false,
-          latex: { isDisplay: false },
-        });
-      } else if (node.children) {
-        // Recursively process other node types
-        segments.push(...this.extractTextSegments(
-          node.children, 
-          inheritBold, 
-          inheritItalic
-        ));
-      }
-    }
-    
-    return segments;
+  protected getTableStyleOptions(): TableStyleOptions {
+    return {
+      headFillColor: [200, 200, 200],
+      headTextColor: [40, 40, 40],
+      bodyTextColor: [20, 20, 20],
+      cellPadding: 2,
+    };
   }
 
-  /**
-   * Gets the jsPDF font style string based on formatting flags
-   */
-  private getFontStyle(bold: boolean, italic: boolean): string {
-    if (bold && italic) return "bolditalic";
-    if (bold) return "bold";
-    if (italic) return "italic";
-    return "normal";
+  protected getImageBlockOptions(): ImageBlockOptions {
+    return {
+      paragraphSpacing: this.layout.paragraphSpacing,
+      align: "center",
+      tightenAfter: true,
+    };
   }
 
   getPageSetup(): PageConfig {
@@ -519,47 +421,4 @@ async renderTextFlow(nodes: any[], x: number, prefix = ""): Promise<void> {
     }
   }
 
-  private async renderSvg(
-    svgEl: SVGElement,
-    x: number,
-    y: number,
-    width: number,
-    height: number
-  ): Promise<void> {
-    const docAny = this.doc as any;
-    if (typeof docAny.svg === "function") {
-      await docAny.svg(svgEl, { x, y, width, height });
-      return;
-    }
-
-    // Fallback: rasterize SVG into PNG and add as image
-    const serializer = new XMLSerializer();
-    const svgString = serializer.serializeToString(svgEl);
-    const svgBlob = new Blob([svgString], { type: "image/svg+xml;charset=utf-8" });
-    const url = URL.createObjectURL(svgBlob);
-
-    const img = new Image();
-    await new Promise<void>((resolve, reject) => {
-      img.onload = () => resolve();
-      img.onerror = () => reject(new Error("Failed to load SVG image"));
-      img.src = url;
-    });
-
-    const scale = 2;
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.max(1, Math.ceil(width * scale));
-    canvas.height = Math.max(1, Math.ceil(height * scale));
-    const ctx = canvas.getContext("2d");
-    if (!ctx) {
-      URL.revokeObjectURL(url);
-      throw new Error("Canvas context not available");
-    }
-
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-    URL.revokeObjectURL(url);
-
-    const dataUrl = canvas.toDataURL("image/png");
-    docAny.addImage(dataUrl, "PNG", x, y, width, height);
-  }
 }

@@ -95,7 +95,7 @@ export async function generatePdf(
         break;
       case "table":
         // @ts-ignore
-        formatter.formatTable(node);
+        await formatter.formatTable(node);
         break;
       case "image":
         // @ts-ignore
@@ -119,6 +119,20 @@ export async function generatePdf(
         // @ts-ignore
         await formatter.formatLatex(node, false);
         break;
+      case "thematicBreak": {
+        const { margins, pageDimensions, fontSize, lineHeight } = formatter.getPageSetup();
+        const lineHeightPt = fontSize * lineHeight;
+        formatter.y += lineHeightPt / 2;
+        formatter.doc.setDrawColor(180, 180, 180);
+        formatter.doc.line(
+          margins.left,
+          formatter.y,
+          pageDimensions.width - margins.right,
+          formatter.y
+        );
+        formatter.y += lineHeightPt / 2;
+        break;
+      }
       default:
         console.warn(`Unsupported node type: ${node.type}. Skipping node.`);
         break;

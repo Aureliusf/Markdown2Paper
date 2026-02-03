@@ -36,13 +36,22 @@ function isObsidianTagParagraph(node: any): boolean {
  * - Empty lines are removed (no extra spacing)
  * - Preserves code blocks and frontmatter
  */
-function preprocessMarkdown(content: string): string {
+function preprocessMarkdown(content: string): { content: string; tableBlocks: string[][] } {
   const lines = content.split('\n');
   const result: string[] = [];
+  const tableBlocks: string[][] = [];
   
   let inCodeBlock = false;
   let inFrontmatter = false;
   const obsidianEmbedPattern = /!\[\[([^\]]+)\]\]/g;
+  const tableDividerPattern = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)+\|?\s*$/;
+
+  const isTableStart = (index: number): boolean => {
+    const line = lines[index] || "";
+    const next = lines[index + 1] || "";
+    if (!line.includes("|")) return false;
+    return tableDividerPattern.test(next);
+  };
 
   const expandDisplayMathInLine = (line: string): string[] => {
     const parts: string[] = [];
@@ -105,6 +114,41 @@ function preprocessMarkdown(content: string): string {
     if (trimmedLine === '') {
       continue;
     }
+
+    // Preserve markdown tables as contiguous blocks (no per-line paragraph breaks)
+    if (isTableStart(i)) {
+      if (result.length > 0 && result[result.length - 1]?.trim() !== '') {
+        result.push('');
+      }
+
+      const normalizeLine = (input: string) =>
+        input.replace(obsidianEmbedPattern, (_match, inner) => {
+          const [target, alt] = inner.split("|").map((part: string) => part.trim());
+          const safeAlt = alt || "";
+          const encodedTarget = target.replace(/ /g, "%20");
+          return `![${safeAlt}](${encodedTarget})`;
+        });
+
+      const tableLines: string[] = [];
+      tableLines.push(normalizeLine(line));
+      tableLines.push(lines[i + 1] || "");
+
+      let j = i + 2;
+      for (; j < lines.length; j++) {
+        const rowLine = lines[j] || "";
+        const trimmedRow = rowLine.trim();
+        if (trimmedRow === '') break;
+        if (!rowLine.includes("|")) break;
+        tableLines.push(normalizeLine(rowLine));
+      }
+
+      const placeholder = `[[[TABLE_${tableBlocks.length}]]]`;
+      tableBlocks.push(tableLines);
+      result.push(placeholder);
+
+      i = j - 1;
+      continue;
+    }
     
     const normalizedLine = line.replace(obsidianEmbedPattern, (_match, inner) => {
       const [target, alt] = inner.split("|").map((part: string) => part.trim());
@@ -132,12 +176,13 @@ function preprocessMarkdown(content: string): string {
     }
   }
   
-  return result.join('\n');
+  return { content: result.join('\n'), tableBlocks };
 }
 
 export function parseMarkdown(markdownContent: string): ParsedContent {
   // Pre-process: each line becomes a paragraph, remove empty lines
-  const processedContent = preprocessMarkdown(markdownContent);
+  const processed = preprocessMarkdown(markdownContent);
+  const processedContent = processed.content;
   
   const processor = unified()
     .use(remarkParse)
@@ -145,6 +190,63 @@ export function parseMarkdown(markdownContent: string): ParsedContent {
     .use(remarkMath);
 
   const tree = processor.parse(processedContent);
+
+  const toTableNode = (lines: string[]) => {
+    const normalizeRow = (row: string): string[] => {
+      let trimmed = row.trim();
+      if (trimmed.startsWith("|")) trimmed = trimmed.slice(1);
+      if (trimmed.endsWith("|")) trimmed = trimmed.slice(0, -1);
+      return trimmed.split("|").map((cell) => cell.trim());
+    };
+
+    const headerCells = normalizeRow(lines[0]);
+    const bodyLines = lines.slice(2);
+    const bodyRows = bodyLines.map((row) => normalizeRow(row));
+    const columnCount = headerCells.length;
+
+    const normalizeCells = (cells: string[]) => {
+      const normalized = cells.slice(0, columnCount);
+      while (normalized.length < columnCount) normalized.push("");
+      return normalized;
+    };
+
+    const makeRow = (cells: string[]) => ({
+      type: "tableRow",
+      children: normalizeCells(cells).map((cell) => ({
+        type: "tableCell",
+        children: cell ? [{ type: "text", value: cell }] : [],
+      })),
+    });
+
+    return {
+      type: "table",
+      align: new Array(columnCount).fill(null),
+      children: [
+        makeRow(headerCells),
+        ...bodyRows.map((row) => makeRow(row)),
+      ],
+    };
+  };
+
+  const tableTokenPattern = /^\[\[\[TABLE_(\d+)]]]\s*$/;
+  tree.children = tree.children.map((node: any) => {
+    if (
+      node.type === "paragraph" &&
+      node.children &&
+      node.children.length === 1 &&
+      node.children[0].type === "text"
+    ) {
+      const match = tableTokenPattern.exec(node.children[0].value.trim());
+      if (match) {
+        const index = Number.parseInt(match[1], 10);
+        const tableLines = processed.tableBlocks[index];
+        if (tableLines) {
+          return toTableNode(tableLines);
+        }
+      }
+    }
+    return node;
+  });
 
 	let title = "Untitled";
 	let frontmatter: { [key: string]: any } = {};
