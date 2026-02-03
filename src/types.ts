@@ -1,6 +1,6 @@
 export enum FormatStyle {
   APA = "APA",
-  // MLA = "MLA", // Future option
+  MLA = "MLA",
   // Chicago = "Chicago", // Future option
 }
 

@@ -18,7 +18,14 @@ interface ParsedContent {
 const OBSIDIAN_TAG_PATTERN = /^(#[a-zA-Z0-9_-]+\s*)+$/;
 
 // Reference section keywords
-const REFERENCE_SECTION_KEYWORDS = ["references", "reference", "citations", "bibliography"];
+const REFERENCE_SECTION_KEYWORDS = [
+  "references",
+  "reference",
+  "citations",
+  "bibliography",
+  "works cited",
+  "work cited",
+];
 
 // Filter function to remove tag-only paragraphs
 function isObsidianTagParagraph(node: any): boolean {
@@ -317,15 +324,18 @@ export function parseMarkdown(markdownContent: string): ParsedContent {
 		}
 	});
 
-	const referenceHeading = tree.children.findIndex(
-		(node) =>
-			node.type === "heading" &&
-			node.depth === 2 &&
-			"children" in node &&
-			(node.children as any).length > 0 &&
-			(node.children as any)[0].type === "text" &&
-			(node.children as any)[0].value.toLowerCase() === "references"
-	);
+	const referenceHeading = tree.children.findIndex((node) => {
+		if (node.type !== "heading" || node.depth !== 2 || !("children" in node)) {
+			return false;
+		}
+		const text = (node.children as any[])
+			.filter((child: any) => child.type === "text")
+			.map((child: any) => child.value)
+			.join("")
+			.toLowerCase()
+			.trim();
+		return REFERENCE_SECTION_KEYWORDS.includes(text);
+	});
 
 	if (referenceHeading !== -1) {
 		const referenceList = tree.children.find(

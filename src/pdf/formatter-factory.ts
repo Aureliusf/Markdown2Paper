@@ -1,5 +1,6 @@
 import { BaseFormatter, ImageResolver } from "./formatters/base-formatter";
 import { APAFormatter } from "./formatters/apa-formatter";
+import { MLAFormatter } from "./formatters/mla-formatter";
 import jspdf from "jspdf";
 import { PaperExportSettings } from "../types";
 import { FormatStyle } from "../types";
@@ -24,10 +25,10 @@ export class FormatterFactory {
     switch (settings.selectedFormatStyle) {
       case FormatStyle.APA:
         return new APAFormatter(doc, y, settings, imageResolver);
+      case FormatStyle.MLA:
+        return new MLAFormatter(doc, y, settings, imageResolver);
 
       // Future format styles can be added here:
-      // case FormatStyle.MLA:
-      //   return new MLAFormatter(doc, y, settings);
       // case FormatStyle.Chicago:
       //   return new ChicagoFormatter(doc, y, settings);
 
