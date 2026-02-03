@@ -10,6 +10,9 @@ interface TextSegment {
   bold: boolean;
   italic: boolean;
   code: boolean;  // For inline code spans
+  latex?: {
+    isDisplay: boolean;
+  };
 }
 
 export class APAFormatter extends BaseFormatter {
@@ -98,29 +101,30 @@ export class APAFormatter extends BaseFormatter {
   this.doc.setFont(fontName, "normal");
 }
 
-  formatParagraph(node: any): void {
+  async formatParagraph(node: any): Promise<void> {
   // APA: 0.5" first-line indent, subsequent lines flush left
   const firstLineX = this.pageMargins.left + this.layout.firstLineIndent;
   const subsequentLineX = this.pageMargins.left;
   
-  this.renderTextFlowWithIndent(node.children, firstLineX, subsequentLineX);
+  await this.renderTextFlowWithIndent(node.children, firstLineX, subsequentLineX);
 }
 
-  formatList(node: any): void {
+  async formatList(node: any): Promise<void> {
     this.y += this.layout.paragraphSpacing;
     const listIndentX = this.pageMargins.left + this.layout.listIndent;
     
-    node.children.forEach((listItem: any, index: number) => {
+    for (let index = 0; index < node.children.length; index++) {
+      const listItem = node.children[index];
       const prefix = node.ordered ? `${index + 1}. ` : "- ";
       // APA lists: consistent indent without first-line indentation
-      this.renderTextFlowWithIndent(
+      await this.renderTextFlowWithIndent(
         listItem.children,
         listIndentX,  // First line starts at list indent
         listIndentX,  // Subsequent lines also at list indent (no hanging indent)
         prefix
       );
       this.y += this.layout.paragraphSpacing / 2;
-    });
+    }
     this.y += this.layout.paragraphSpacing / 2;
   }
 
@@ -158,7 +162,7 @@ export class APAFormatter extends BaseFormatter {
     this.y += this.layout.paragraphSpacing;
   }
 
-  formatBlockquote(node: any): void {
+  async formatBlockquote(node: any): Promise<void> {
     this.y += this.layout.paragraphSpacing;
     this.doc.setDrawColor(200, 200, 200);
     this.doc.line(
@@ -167,19 +171,19 @@ export class APAFormatter extends BaseFormatter {
       this.pageMargins.left - 5,
       this.y + 10
     );
-    this.renderTextFlow(
+    await this.renderTextFlow(
       node.children,
       this.pageMargins.left + this.layout.blockquoteIndent
     );
     this.y += this.layout.paragraphSpacing;
   }
 
-  renderTextFlowWithIndent(
+  async renderTextFlowWithIndent(
   nodes: any[], 
   firstLineX: number, 
   subsequentLineX: number,
   prefix = ""
-): void {
+): Promise<void> {
   const { fontSize, lineHeight, margins, pageDimensions } = this.getPageSetup();
   const maxWidth = pageDimensions.width - margins.right;
   const lineHeightPt = fontSize * lineHeight;
@@ -193,11 +197,13 @@ export class APAFormatter extends BaseFormatter {
   
   let currentX = firstLineX;
   let isFirstLine = true;
+  let currentLineHeight = lineHeightPt;
   
   const newLine = () => {
-    this.y += lineHeightPt;
+    this.y += currentLineHeight;
     isFirstLine = false;
     currentX = subsequentLineX;
+    currentLineHeight = lineHeightPt;
     
     if (this.y + lineHeightPt > pageDimensions.height - margins.bottom) {
       this.doc.addPage();
@@ -206,6 +212,50 @@ export class APAFormatter extends BaseFormatter {
   };
   
   for (const segment of segments) {
+    if (segment.latex) {
+      const latexResult = segment.latex.isDisplay
+        ? await latexRenderer.renderDisplay(segment.text)
+        : await latexRenderer.renderInline(segment.text);
+
+      if (latexResult && latexResult.svg) {
+        const targetWidth = latexResult.width;
+        const targetHeight = latexResult.height;
+
+        if (currentX + targetWidth > maxWidth && currentX > (isFirstLine ? firstLineX : subsequentLineX)) {
+          newLine();
+        }
+
+        try {
+          await this.renderSvg(
+            latexResult.svg,
+            currentX,
+            this.y - targetHeight + fontSize,
+            targetWidth,
+            targetHeight
+          );
+          currentX += targetWidth;
+          if (targetHeight > currentLineHeight) {
+            currentLineHeight = targetHeight;
+          }
+        } catch (error) {
+          console.error("Error rendering inline LaTeX:", error);
+          this.doc.setFont(fontName, "normal");
+          this.doc.setFontSize(fontSize);
+          const fallbackText = `[Math: ${segment.text}]`;
+          this.doc.text(fallbackText, currentX, this.y);
+          currentX += this.doc.getTextWidth(fallbackText);
+        }
+        continue;
+      }
+
+      this.doc.setFont(fontName, "normal");
+      this.doc.setFontSize(fontSize);
+      const fallbackText = `[Math: ${segment.text}]`;
+      this.doc.text(fallbackText, currentX, this.y);
+      currentX += this.doc.getTextWidth(fallbackText);
+      continue;
+    }
+
     if (segment.code) {
       this.doc.setFont("Courier", "normal");
     } else {
@@ -241,12 +291,12 @@ export class APAFormatter extends BaseFormatter {
     }
   }
   
-  this.y += lineHeightPt;
+  this.y += currentLineHeight;
 }
 
 // Keep original signature for backward compatibility with lists, etc.
-renderTextFlow(nodes: any[], x: number, prefix = ""): void {
-  this.renderTextFlowWithIndent(nodes, x, x, prefix);
+async renderTextFlow(nodes: any[], x: number, prefix = ""): Promise<void> {
+  await this.renderTextFlowWithIndent(nodes, x, x, prefix);
 }
 
   getTextFromNode(node: any): string {
@@ -370,6 +420,14 @@ renderTextFlow(nodes: any[], x: number, prefix = ""): void {
           italic: false,
           code: true 
         });
+      } else if (node.type === "inlineMath") {
+        segments.push({
+          text: node.value,
+          bold: false,
+          italic: false,
+          code: false,
+          latex: { isDisplay: false },
+        });
       } else if (node.children) {
         // Recursively process other node types
         segments.push(...this.extractTextSegments(
@@ -417,16 +475,10 @@ renderTextFlow(nodes: any[], x: number, prefix = ""): void {
     const result = await latexRenderer.renderDisplay(node.value);
     if (result && result.svg) {
       try {
-        // @ts-ignore
-        await this.doc.svg(result.svg, {
-          x:
-            (this.getPageSetup().pageDimensions.width -
-              result.width) /
-            2,
-          y: this.y,
-          width: result.width,
-          height: result.height,
-        });
+        const x =
+          (this.getPageSetup().pageDimensions.width - result.width) /
+          2;
+        await this.renderSvg(result.svg, x, this.y, result.width, result.height);
         this.y += result.height;
       } catch (error) {
         console.error("Error rendering display LaTeX:", error);
@@ -451,5 +503,49 @@ renderTextFlow(nodes: any[], x: number, prefix = ""): void {
       // when processing text segments
       console.warn("Inline LaTeX should be processed in text flow, not as separate node");
     }
+  }
+
+  private async renderSvg(
+    svgEl: SVGElement,
+    x: number,
+    y: number,
+    width: number,
+    height: number
+  ): Promise<void> {
+    const docAny = this.doc as any;
+    if (typeof docAny.svg === "function") {
+      await docAny.svg(svgEl, { x, y, width, height });
+      return;
+    }
+
+    // Fallback: rasterize SVG into PNG and add as image
+    const serializer = new XMLSerializer();
+    const svgString = serializer.serializeToString(svgEl);
+    const svgBlob = new Blob([svgString], { type: "image/svg+xml;charset=utf-8" });
+    const url = URL.createObjectURL(svgBlob);
+
+    const img = new Image();
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve();
+      img.onerror = () => reject(new Error("Failed to load SVG image"));
+      img.src = url;
+    });
+
+    const scale = 2;
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.ceil(width * scale));
+    canvas.height = Math.max(1, Math.ceil(height * scale));
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      URL.revokeObjectURL(url);
+      throw new Error("Canvas context not available");
+    }
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    URL.revokeObjectURL(url);
+
+    const dataUrl = canvas.toDataURL("image/png");
+    docAny.addImage(dataUrl, "PNG", x, y, width, height);
   }
 }

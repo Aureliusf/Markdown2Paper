@@ -2,7 +2,6 @@ import jspdf from "jspdf";
 import { PaperExportSettings } from "../types";
 import { BaseFormatter } from "./formatters/base-formatter";
 import { loadFonts } from "./font-loader";
-import { visit } from "unist-util-visit";
 import { FormatterFactory } from "./formatter-factory";
 
 // Helper to check if a node has actual content
@@ -63,13 +62,8 @@ export async function generatePdf(
     console.warn("No title found in markdown document. Skipping title formatting.");
   }
 
-  // Collect all nodes first, then process them
-  const nodes: any[] = [];
-  visit(parsedContent.content, (node) => {
-    if (hasContent(node)) {
-      nodes.push(node);
-    }
-  });
+  // Collect top-level nodes only, then process them
+  const nodes: any[] = parsedContent.content.children.filter((node: any) => hasContent(node));
 
   // Process each node with proper async handling
   for (const node of nodes) {

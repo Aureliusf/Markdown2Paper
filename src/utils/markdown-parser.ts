@@ -1,6 +1,7 @@
 import { unified } from "unified";
 import remarkParse from "remark-parse";
 import remarkFrontmatter from "remark-frontmatter";
+import remarkMath from "remark-math";
 import { load } from "js-yaml";
 import { visit } from "unist-util-visit";
 import { Root } from "mdast";
@@ -41,6 +42,31 @@ function preprocessMarkdown(content: string): string {
   
   let inCodeBlock = false;
   let inFrontmatter = false;
+
+  const expandDisplayMathInLine = (line: string): string[] => {
+    const parts: string[] = [];
+    let remaining = line;
+    while (remaining.includes("$$")) {
+      const start = remaining.indexOf("$$");
+      const end = remaining.indexOf("$$", start + 2);
+      if (end === -1) break;
+
+      const before = remaining.slice(0, start).trim();
+      const math = remaining.slice(start, end + 2).trim();
+      const after = remaining.slice(end + 2).trim();
+
+      if (before) parts.push(before);
+      parts.push(""); // Blank line before display math
+      parts.push(math);
+      parts.push(""); // Blank line after display math
+
+      remaining = after;
+    }
+
+    if (parts.length === 0) return [line];
+    if (remaining) parts.push(remaining);
+    return parts;
+  };
   
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i] || '';
@@ -79,12 +105,23 @@ function preprocessMarkdown(content: string): string {
       continue;
     }
     
-    // Add paragraph break before each content line (except first)
-    if (result.length > 0 && result[result.length - 1]?.trim() !== '') {
-      result.push(''); // Blank line = paragraph break
+    const expandedLines = expandDisplayMathInLine(line);
+    for (const expandedLine of expandedLines) {
+      if (expandedLine.trim() === '') {
+        // Preserve explicit blank lines for display math separation
+        if (result.length > 0 && result[result.length - 1]?.trim() !== '') {
+          result.push('');
+        }
+        continue;
+      }
+
+      // Add paragraph break before each content line (except first)
+      if (result.length > 0 && result[result.length - 1]?.trim() !== '') {
+        result.push(''); // Blank line = paragraph break
+      }
+
+      result.push(expandedLine);
     }
-    
-    result.push(line);
   }
   
   return result.join('\n');
@@ -96,7 +133,8 @@ export function parseMarkdown(markdownContent: string): ParsedContent {
   
   const processor = unified()
     .use(remarkParse)
-    .use(remarkFrontmatter, ["yaml"]);
+    .use(remarkFrontmatter, ["yaml"])
+    .use(remarkMath);
 
   const tree = processor.parse(processedContent);
 

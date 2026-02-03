@@ -35,12 +35,12 @@ export abstract class BaseFormatter {
 
   abstract formatTitle(title: string): void;
   abstract formatHeading(node: any): void;
-  abstract formatParagraph(node: any): void;
-  abstract formatList(node: any): void;
+  abstract formatParagraph(node: any): Promise<void>;
+  abstract formatList(node: any): Promise<void>;
   abstract formatTable(node: any): void;
   abstract formatImage(node: any): void;
   abstract formatCode(node: any): void;
-  abstract formatBlockquote(node: any): void;
+  abstract formatBlockquote(node: any): Promise<void>;
   abstract formatCitation(citation: string): void;
   abstract formatReferenceList(references: string[]): void;
   abstract getPageSetup(): PageConfig;
