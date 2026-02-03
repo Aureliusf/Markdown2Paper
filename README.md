@@ -1,22 +1,24 @@
 # Markdown to Paper
 
-Transform your markdown drafts into APA-formatted papers for school ready PDFs.
+Transform your markdown drafts into APA- or MLA-formatted papers ready for PDF export.
 
 ## Features
 
 - **PDF Export** - Export the active markdown file to a PDF with academic formatting.
 - **Formatting**
-  - Centered, bold title
-  - Hierarchical heading styles (H2-H6 mapped to APA levels 1-5)
+  - APA or MLA format selection
+  - APA title is centered and bold; MLA title is centered, regular weight
+  - APA heading styles (H2-H6 mapped to APA levels 1-5)
   - Double-spacing throughout
   - 0.5-inch first-line indent for paragraphs
-  - Flush-left reference list with no hanging indent
+  - APA: Flush-left reference list with no hanging indent
+  - MLA: "Works Cited" with hanging indents
   - Default Times New Roman font
-  - Separate section for references
+  - Separate section for references/works cited
 - **Customizable Settings**
   - Font selection (Times New Roman, Helvetica, Courier)
   - Adjustable page margins (top, right, bottom, left)
-  - Format style selector (currently APA only, working on MLA)
+  - Format style selector (APA, MLA)
 - **Rich Content Support**
   - Headings (H1-H6)
   - Paragraphs with proper text flow and wrapping
@@ -24,10 +26,12 @@ Transform your markdown drafts into APA-formatted papers for school ready PDFs.
   - Tables (basic support via jspdf-autotable)
   - Code blocks (rendered in Courier font)
   - Blockquotes with visual indicator
-  - ~Display math (`$$...$$`)~ WIP
+  - Inline and display math (`$...$`, `$$...$$`)
+  - Inline LaTeX in tables
+  - Embedded images (local vault images)
 - **Citation & Reference Parsing**
   - Extract citations using `[@citationKey]` syntax
-  - Parse reference lists from a "References" section
+  - Parse reference lists from a "References" or "Works Cited" section
 - **Obsidian UI Integration**
   - Ribbon button for quick export
   - Format selector dropdown in ribbon
@@ -36,9 +40,7 @@ Transform your markdown drafts into APA-formatted papers for school ready PDFs.
 
 ## Known Issues & Limitations
 
-- **Inline LaTeX Math** (`$...$`) is not properly rendered in the text flow - display math (`$$...$$`) works, but inline math is logged as a warning
-- **No Image Embedding** - Images are not actually embedded; only a placeholder `[Image: alt text]` is shown. Pending implementation
-- **Table Styling** - They render out like markdown tables, not APA styling yet
+- **Table Styling** - Tables render like markdown tables; APA/MLA-specific styling is still basic
 - **Callouts Not Supported** - Obsidian callout syntax (>`[!note]`) is not recognized and will appear as blockquotes
 
 ## Installation
@@ -78,7 +80,7 @@ Transform your markdown drafts into APA-formatted papers for school ready PDFs.
 - Font: Defaults to Times (Times New Roman equivalent)
 - Margins: Default 1 inch on all sides
 - Citations: Use `[@citationKey]` anywhere in text
-- References: Create a `## References` or `## Citations`heading 2 followed by a list
+- References: Create a `## References`, `## Citations`, or `## Works Cited` heading 2 followed by a list
 
 ## Development
 
@@ -95,10 +97,11 @@ markdown-to-paper/
 │   │   ├── formatter-factory.ts   # Factory for format-specific formatters
 │   │   ├── font-loader.ts         # Font loading utilities
 │   │   ├── layout-manager.ts      # Layout configuration
-│   │   ├── latex-renderer.ts      # MathJax LaTeX rendering WIP
+│   │   ├── latex-renderer.ts      # MathJax LaTeX rendering
 │   │   └── formatters/
 │   │       ├── base-formatter.ts  # Abstract base class
-│   │       └── apa-formatter.ts   # APA 7th edition formatter
+│   │       ├── apa-formatter.ts   # APA 7th edition formatter
+│   │       └── mla-formatter.ts   # MLA formatter
 │   ├── ui/
 │   │   ├── ribbon-manager.ts      # Ribbon button setup
 │   │   └── format-selector-modal.ts # Format selection modal
